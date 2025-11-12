@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>🌍 EarthSense 360 — India Disaster Dashboard</title>
+
+  <!-- ArcGIS JS API -->
+  <link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/dark/main.css"/>
+  <script src="https://js.arcgis.com/4.30/"></script>
+
+  <style>
+    html,body,#viewDiv { height:100%; width:100%; margin:0; padding:0; background:#000; font-family:"Segoe UI",Arial; }
+    #viewDiv{ position:absolute; inset:0; }
+    #controls, #legend {
+      position:absolute; z-index:999; background:rgba(0,0,0,0.6); padding:10px; border-radius:10px; color:#fff;
+      box-shadow:0 0 10px #000;
+    }
+    #controls { top:15px; left:15px; width:270px; }
+    #legend { top:15px; right:15px; width:200px; font-size:13px; }
+    button {
+      display:block; width:100%; padding:8px; margin:6px 0;
+      border:none; border-radius:6px; background:#222; color:#fff; cursor:pointer;
+    }
+    button:hover { background:#444; }
+    hr { border-color:#333; margin:8px 0; }
+  </style>
+</head>
+<body>
+  <div id="viewDiv"></div>
+
+  <div id="controls">
+    <strong>🌍 EarthSense 360 (India)</strong>
+    <button id="btnIndia">Center India</button>
+    <button id="btnBasemap">Switch to Street View</button>
+    <hr/>
+    <button id="btnQuake">Show Earthquakes (USGS)</button>
+    <button id="btnLandslide">Show Landslides (NASA)</button>
+    <button id="btnFlood">Show Floods (DFO)</button>
+    <button id="btnCyclone">Show Cyclones (NOAA)</button>
+    <button id="btnRain">Show Heavy Rainfall (Open-Meteo)</button>
+    <hr/>
+    <small>Click on any point → 7-day forecast & weather</small>
+  </div>
+
+  <div id="legend">
+    <b>Legend</b>
+    <div>🔴 Earthquake</div>
+    <div>🟢 Landslide</div>
+    <div>🟦 Flood</div>
+    <div>🌀 Cyclone</div>
+    <div>🔵 Heavy Rainfall</div>
+  </div>
+
+  <script>
+    require([
+      "esri/Map", "esri/views/SceneView", "esri/Graphic", "esri/geometry/Point", "esri/layers/GraphicsLayer"
+    ], function(Map, SceneView, Graphic, Point, GraphicsLayer) {
+
+      const map = new Map({ basemap: "satellite", ground: "world-elevation" });
+      const view = new SceneView({
+        container: "viewDiv",
+        map,
+        camera: { position: { x: 82.8, y: 22.0, z: 12000000 }, tilt: 0 }
+      });
+
+      // Layers
+      const quakeL = new GraphicsLayer(), landslideL = new GraphicsLayer(), floodL = new GraphicsLayer(),
+            cycloneL = new GraphicsLayer(), rainL = new GraphicsLayer();
+      map.addMany([quakeL, landslideL, floodL, cycloneL, rainL]);
+
+      async function getJSON(url){ try{const r=await fetch(url);return await r.json();}catch(e){console.warn("Fetch failed:",url);return null;} }
+
+      // Earthquakes
+      async function showEarthquakes(){
+        quakeL.removeAll();
+        const data = await getJSON("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_month.geojson");
+        data.features.forEach(f=>{
+          const [lon,lat] = f.geometry.coordinates;
+          quakeL.add(new Graphic({
+            geometry:new Point({longitude:lon,latitude:lat}),
+            symbol:{type:"simple-marker",color:[255,50,50,0.8],size:6+(f.properties.mag*2)},
+            popupTemplate:{title:"Earthquake",content:`${f.properties.place}<br>Magnitude: ${f.properties.mag}`}
+          }));
+        });
+        console.log("Earthquakes plotted");
+      }
+
+      // NASA Landslides (sample)
+      async function showLandslides(){
+        landslideL.removeAll();
+        const url = "https://data.nasa.gov/resource/h9gi-nx95.json?$limit=1000";
+        const data = await getJSON(url);
+        data.forEach(d=>{
+          const lat=+d.latitude,lon=+d.longitude;
+          if(!lat||!lon)return;
+          landslideL.add(new Graphic({
+            geometry:new Point({longitude:lon,latitude:lat}),
+            symbol:{type:"simple-marker",color:[0,200,100,0.8],size:8},
+            popupTemplate:{title:"Landslide",content:`Date: ${d.event_date}<br>Country: ${d.country_name}`}
+          }));
+        });
+        console.log("Landslides plotted");
+      }
+
+      // Floods (Dartmouth)
+      async function showFloods(){
+        floodL.removeAll();
+        const url = "https://data.opendatasoft.com/api/explore/v2.1/catalog/datasets/global-flood-database/records?limit=300";
+        const data = await getJSON(url);
+        if(!data?.results)return;
+        data.results.forEach(f=>{
+          const lat = +f.latitude, lon = +f.longitude;
+          if(!lat||!lon)return;
+          floodL.add(new Graphic({
+            geometry:new Point({longitude:lon,latitude:lat}),
+            symbol:{type:"simple-marker",color:[0,150,255,0.9],size:10},
+            popupTemplate:{title:"Flood Event",content:`${f.country}<br>${f.startdate}`}
+          }));
+        });
+        console.log("Floods plotted");
+      }
+
+      // Cyclones (NOAA IBTrACS)
+      async function showCyclones(){
+        cycloneL.removeAll();
+        const url="https://www.ncei.noaa.gov/access/monitoring/hazards-api/v1/ibtracs?basin=IO&limit=50";
+        const data=await getJSON(url);
+        if(!data?.data)return;
+        data.data.forEach(c=>{
+          const lat=+c.Latitude,lon=+c.Longitude,name=c.Name||"Cyclone";
+          if(!lat||!lon)return;
+          cycloneL.add(new Graphic({
+            geometry:new Point({longitude:lon,latitude:lat}),
+            symbol:{type:"simple-marker",color:[255,255,0,0.9],size:12},
+            popupTemplate:{title:`🌀 ${name}`,content:`Date: ${c.ISO_time}<br>Wind: ${c.Wind} kt`}
+          }));
+        });
+        console.log("Cyclones plotted");
+      }
+
+      // Heavy Rainfall (Open-Meteo)
+      async function showHeavyRain(){
+        rainL.removeAll();
+        const coords=[
+          [72.8,18.9],[88.3,22.6],[77.2,28.6],[80.2,13.1],[76.9,8.5],[93.0,26.1]
+        ];
+        for(const [lon,lat] of coords){
+          const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=precipitation_sum&forecast_days=7&timezone=auto`;
+          const data=await getJSON(url);
+          if(!data?.daily)return;
+          const sum=data.daily.precipitation_sum.reduce((a,b)=>a+b,0);
+          if(sum>40){ // only show high rainfall
+            rainL.add(new Graphic({
+              geometry:new Point({longitude:lon,latitude:lat}),
+              symbol:{type:"simple-marker",color:[0,100,255,0.8],size:10+(sum/10)},
+              popupTemplate:{title:"Heavy Rainfall",content:`7-day total: ${sum.toFixed(1)} mm`}
+            }));
+          }
+        }
+        console.log("Rainfall plotted");
+      }
+
+      // Weather on click
+      view.on("click", async ev=>{
+        const p=view.toMap(ev);
+        const lat=p.latitude.toFixed(2),lon=p.longitude.toFixed(2);
+        const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+        const j=await getJSON(url);
+        const c=j?.current_weather;
+        view.popup.open({
+          location:p,
+          title:"Weather Forecast",
+          content:c?`Temp: ${c.temperature}°C<br>Wind: ${c.windspeed} m/s`:"No data"
+        });
+      });
+
+      // Buttons
+      document.getElementById("btnIndia").onclick=()=>view.goTo({center:[82.8,22],zoom:5});
+      document.getElementById("btnBasemap").onclick=()=>{
+        map.basemap = map.basemap==="satellite" ? "streets" : "satellite";
+      };
+      document.getElementById("btnQuake").onclick=showEarthquakes;
+      document.getElementById("btnLandslide").onclick=showLandslides;
+      document.getElementById("btnFlood").onclick=showFloods;
+      document.getElementById("btnCyclone").onclick=showCyclones;
+      document.getElementById("btnRain").onclick=showHeavyRain;
+
+      view.when(()=>view.goTo({center:[82.8,22],zoom:4}));
+    });
+  </script>
+</body>
+</html>
